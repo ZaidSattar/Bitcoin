@@ -45,57 +45,77 @@ class FeatureEngineering:
         # Make sure data is sorted by date
         df = df.sort_index()
         
-        # Moving Averages
-        for window in [7, 14, 30, 50, 200]:
-            df[f'SMA_{window}'] = df['Close'].rolling(window=window).mean()
-            df[f'EMA_{window}'] = df['Close'].ewm(span=window, adjust=False).mean()
+        # Calculate total data size
+        data_size = len(df)
+        logger.info(f"Data size: {data_size} rows")
         
-        # Price distance from moving averages (normalized)
-        for window in [7, 14, 30, 50, 200]:
-            df[f'SMA_{window}_dist'] = (df['Close'] - df[f'SMA_{window}']) / df[f'SMA_{window}']
-            df[f'EMA_{window}_dist'] = (df['Close'] - df[f'EMA_{window}']) / df[f'EMA_{window}']
+        # Moving Averages - Use smaller windows for small datasets
+        windows = [3, 5, 7, 10, 14]
+        if data_size > 100:
+            windows = [7, 14, 30, 50, 200]
+            
+        for window in windows:
+            if window < data_size:  # Only create windows smaller than data size
+                df[f'SMA_{window}'] = df['Close'].rolling(window=window).mean()
+                df[f'EMA_{window}'] = df['Close'].ewm(span=window, adjust=False).mean()
+                
+                # Price distance from moving averages (normalized)
+                df[f'SMA_{window}_dist'] = (df['Close'] - df[f'SMA_{window}']) / df[f'SMA_{window}']
+                df[f'EMA_{window}_dist'] = (df['Close'] - df[f'EMA_{window}']) / df[f'EMA_{window}']
         
         # Relative Strength Index (RSI)
+        rsi_window = min(14, data_size // 3)  # Adjust RSI window for small datasets
         delta = df['Close'].diff()
         gain = delta.where(delta > 0, 0)
         loss = -delta.where(delta < 0, 0)
-        avg_gain = gain.rolling(window=14).mean()
-        avg_loss = loss.rolling(window=14).mean()
+        avg_gain = gain.rolling(window=rsi_window).mean()
+        avg_loss = loss.rolling(window=rsi_window).mean()
         rs = avg_gain / avg_loss
-        df['RSI_14'] = 100 - (100 / (1 + rs))
+        df[f'RSI_{rsi_window}'] = 100 - (100 / (1 + rs))
         
         # Moving Average Convergence Divergence (MACD)
-        ema_12 = df['Close'].ewm(span=12, adjust=False).mean()
-        ema_26 = df['Close'].ewm(span=26, adjust=False).mean()
-        df['MACD'] = ema_12 - ema_26
-        df['MACD_signal'] = df['MACD'].ewm(span=9, adjust=False).mean()
-        df['MACD_hist'] = df['MACD'] - df['MACD_signal']
+        fast_period = min(12, data_size // 5)
+        slow_period = min(26, data_size // 3)
+        signal_period = min(9, data_size // 6)
+        
+        if fast_period > 0 and slow_period > fast_period:
+            ema_fast = df['Close'].ewm(span=fast_period, adjust=False).mean()
+            ema_slow = df['Close'].ewm(span=slow_period, adjust=False).mean()
+            df['MACD'] = ema_fast - ema_slow
+            df['MACD_signal'] = df['MACD'].ewm(span=signal_period, adjust=False).mean()
+            df['MACD_hist'] = df['MACD'] - df['MACD_signal']
         
         # Bollinger Bands
-        sma_20 = df['Close'].rolling(window=20).mean()
-        std_20 = df['Close'].rolling(window=20).std()
-        df['BB_upper'] = sma_20 + (std_20 * 2)
-        df['BB_middle'] = sma_20
-        df['BB_lower'] = sma_20 - (std_20 * 2)
-        df['BB_width'] = (df['BB_upper'] - df['BB_lower']) / df['BB_middle']
-        df['BB_pct'] = (df['Close'] - df['BB_lower']) / (df['BB_upper'] - df['BB_lower'])
+        bb_window = min(20, data_size // 3)
+        if bb_window > 0:
+            sma_bb = df['Close'].rolling(window=bb_window).mean()
+            std_bb = df['Close'].rolling(window=bb_window).std()
+            df['BB_upper'] = sma_bb + (std_bb * 2)
+            df['BB_middle'] = sma_bb
+            df['BB_lower'] = sma_bb - (std_bb * 2)
+            df['BB_width'] = (df['BB_upper'] - df['BB_lower']) / df['BB_middle']
+            df['BB_pct'] = (df['Close'] - df['BB_lower']) / (df['BB_upper'] - df['BB_lower'])
         
         # Average True Range (ATR) - Volatility
-        high_low = df['High'] - df['Low']
-        high_close = (df['High'] - df['Close'].shift()).abs()
-        low_close = (df['Low'] - df['Close'].shift()).abs()
-        ranges = pd.concat([high_low, high_close, low_close], axis=1)
-        true_range = ranges.max(axis=1)
-        df['ATR_14'] = true_range.rolling(window=14).mean()
+        atr_window = min(14, data_size // 3)
+        if atr_window > 0:
+            high_low = df['High'] - df['Low']
+            high_close = (df['High'] - df['Close'].shift()).abs()
+            low_close = (df['Low'] - df['Close'].shift()).abs()
+            ranges = pd.concat([high_low, high_close, low_close], axis=1)
+            true_range = ranges.max(axis=1)
+            df[f'ATR_{atr_window}'] = true_range.rolling(window=atr_window).mean()
         
         # Simple stochastic oscillator
-        low_14 = df['Low'].rolling(window=14).min()
-        high_14 = df['High'].rolling(window=14).max()
-        df['Stoch_K'] = 100 * ((df['Close'] - low_14) / (high_14 - low_14))
-        df['Stoch_D'] = df['Stoch_K'].rolling(window=3).mean()
-        
-        # Williams %R
-        df['Williams_R'] = -100 * ((high_14 - df['Close']) / (high_14 - low_14))
+        stoch_window = min(14, data_size // 3)
+        if stoch_window > 0:
+            low_stoch = df['Low'].rolling(window=stoch_window).min()
+            high_stoch = df['High'].rolling(window=stoch_window).max()
+            df['Stoch_K'] = 100 * ((df['Close'] - low_stoch) / (high_stoch - low_stoch))
+            df['Stoch_D'] = df['Stoch_K'].rolling(window=min(3, data_size // 10)).mean()
+            
+            # Williams %R
+            df['Williams_R'] = -100 * ((high_stoch - df['Close']) / (high_stoch - low_stoch))
         
         # On-Balance Volume (OBV)
         obv = (np.sign(df['Close'].diff()) * df['Volume']).fillna(0).cumsum()
@@ -118,6 +138,10 @@ class FeatureEngineering:
         if self.df is None:
             raise ValueError("Data must be set before creating features")
             
+        # Adjust lags based on data size
+        data_size = len(self.df)
+        n_lags = min(n_lags, data_size // 3)  # Limit lags to 1/3 of data size
+        
         logger.info(f"Creating lagged features with {n_lags} lags")
         df = self.df.copy()
         
@@ -134,14 +158,17 @@ class FeatureEngineering:
             df[f'momentum_{i}'] = df['Close'].pct_change(i)
         
         # Create rolling window features
-        for window in [7, 14, 30]:
-            df[f'returns_mean_{window}'] = df['returns'].rolling(window=window).mean()
-            df[f'returns_std_{window}'] = df['returns'].rolling(window=window).std()
-            df[f'returns_min_{window}'] = df['returns'].rolling(window=window).min()
-            df[f'returns_max_{window}'] = df['returns'].rolling(window=window).max()
+        windows = [3, 5, 7]  # Smaller windows for small datasets
+        if data_size > 50:
+            windows = [7, 14, 30]
             
-            # Add volatility features
-            df[f'volatility_{window}'] = df['returns'].rolling(window=window).std()
+        for window in windows:
+            if window < data_size:  # Only create windows smaller than data size
+                df[f'returns_mean_{window}'] = df['returns'].rolling(window=window).mean()
+                df[f'returns_std_{window}'] = df['returns'].rolling(window=window).std()
+                
+                # Add volatility features
+                df[f'volatility_{window}'] = df['returns'].rolling(window=window).std()
             
         logger.info(f"Lagged features created. New shape: {df.shape}")
         
@@ -164,17 +191,11 @@ class FeatureEngineering:
         df = df.reset_index()
         
         # Create date features
-        df['hour'] = df['datetime'].dt.hour
         df['day_of_week'] = df['datetime'].dt.dayofweek
         df['day_of_month'] = df['datetime'].dt.day
-        df['week_of_year'] = df['datetime'].dt.isocalendar().week
         df['month'] = df['datetime'].dt.month
-        df['quarter'] = df['datetime'].dt.quarter
-        df['year'] = df['datetime'].dt.year
         
         # Create cyclical features
-        df['hour_sin'] = np.sin(2 * np.pi * df['hour'] / 24)
-        df['hour_cos'] = np.cos(2 * np.pi * df['hour'] / 24)
         df['day_of_week_sin'] = np.sin(2 * np.pi * df['day_of_week'] / 7)
         df['day_of_week_cos'] = np.cos(2 * np.pi * df['day_of_week'] / 7)
         df['month_sin'] = np.sin(2 * np.pi * df['month'] / 12)
@@ -200,6 +221,10 @@ class FeatureEngineering:
         if self.df is None:
             raise ValueError("Data must be set before creating features")
             
+        # Adjust forecast horizon based on data size
+        data_size = len(self.df)
+        forecast_horizon = min(forecast_horizon, data_size // 5)  # Limit forecast horizon
+        
         logger.info(f"Creating target variables with forecast horizon {forecast_horizon}")
         df = self.df.copy()
         
@@ -210,9 +235,12 @@ class FeatureEngineering:
         # Classification targets (price direction)
         df[f'target_direction_{forecast_horizon}'] = (df[f'target_return_{forecast_horizon}'] > 0).astype(int)
         
-        # Create volatility targets
-        for window in [7, 14, 30]:
-            df[f'future_volatility_{window}'] = df['returns'].rolling(window=window).std().shift(-window)
+        # Create volatility targets - only for larger datasets
+        if data_size > 50:
+            windows = [7, 14, 21]
+            for window in windows:
+                if window < data_size // 3:  # Only create if window is less than 1/3 of data
+                    df[f'future_volatility_{window}'] = df['returns'].rolling(window=window).std().shift(-window)
         
         logger.info(f"Target variables created. New shape: {df.shape}")
         
@@ -307,8 +335,11 @@ class FeatureEngineering:
         # Step 5: Scale features
         df_scaled, scaler = self.scale_features(df_features, scaler_type=scaler_type, exclude_cols=exclude_scaling)
         
-        # Remove rows with NaN values
-        df_final = df_scaled.dropna()
+        # Fill NaN values with column means instead of dropping rows
+        df_filled = df_scaled.fillna(df_scaled.mean())
+        
+        # If after filling with means there are still NaNs (e.g., all NaN columns), fill with 0
+        df_final = df_filled.fillna(0)
         
         logger.info(f"Feature preparation complete. Final shape: {df_final.shape}")
         

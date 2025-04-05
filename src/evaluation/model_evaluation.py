@@ -203,45 +203,62 @@ class ModelEvaluator:
         
         return df
     
-    def compare_classification_models(self, metric='f1'):
+    def compare_classification_models(self):
         """
-        Compare classification models based on a specific metric
+        Compare classification models
         
-        Args:
-            metric (str): Metric to use for comparison
-            
         Returns:
-            pd.DataFrame: Comparison of models
+            pandas.DataFrame: Comparison of classification models
         """
         if not self.classification_results:
             logger.warning("No classification models to compare")
             return None
         
-        results = {}
-        for model_name, model_results in self.classification_results.items():
-            results[model_name] = model_results['metrics']
-            
-        df = pd.DataFrame(results).T
+        # Create DataFrame for comparison
+        models = list(self.classification_results.keys())
+        metrics = ['accuracy', 'precision', 'recall']
         
-        # Filter numeric columns for plotting
-        numeric_cols = df.select_dtypes(include=[np.number]).columns
-        plot_df = df[numeric_cols].drop('confusion_matrix', axis=1, errors='ignore')
+        # Check if 'f1' is available in all model results
+        if all('f1' in self.classification_results[model] for model in models):
+            metrics.append('f1')
         
-        # Create comparison plot
-        plt.figure(figsize=(12, 6))
-        ax = plot_df[metric].sort_values(ascending=False).plot(kind='bar')
-        plt.title(f'Classification Models Comparison - {metric.upper()}')
-        plt.ylabel(metric.upper())
-        plt.xlabel('Model')
-        plt.grid(axis='y', alpha=0.3)
+        if all('roc_auc' in self.classification_results[model] and 
+               self.classification_results[model]['roc_auc'] is not None 
+               for model in models):
+            metrics.append('roc_auc')
         
-        # Add value labels on bars
-        for i, v in enumerate(plot_df[metric].sort_values(ascending=False)):
-            ax.text(i, v + 0.01, f'{v:.4f}', ha='center')
+        data = {}
+        for metric in metrics:
+            data[metric] = [self.classification_results[model][metric] for model in models]
         
-        plt.tight_layout()
+        plot_df = pd.DataFrame(data, index=models)
         
-        return df
+        # Plot comparison
+        plt.figure(figsize=(10, 6))
+        
+        # Get available metrics to plot
+        available_metrics = [m for m in metrics if m in plot_df.columns]
+        
+        for i, metric in enumerate(available_metrics):
+            plt.subplot(1, len(available_metrics), i+1)
+            ax = plot_df[metric].sort_values(ascending=False).plot(kind='bar')
+            plt.title(f'{metric.upper()} Comparison')
+            plt.ylabel(metric.upper())
+            plt.xticks(rotation=45)
+            plt.tight_layout()
+        
+        # Highlight best model
+        best_metric = 'accuracy'  # Default to accuracy
+        if 'f1' in available_metrics:
+            best_metric = 'f1'  # Prefer F1 if available
+        
+        best_model = plot_df[best_metric].idxmax()
+        logger.info(f"Best classification model based on {best_metric}: {best_model} with {best_metric}={plot_df.loc[best_model, best_metric]:.4f}")
+        
+        # Store comparison DataFrame
+        self.classification_comparison = plot_df
+        
+        return plot_df
     
     def compare_time_series_models(self, metric='rmse'):
         """
