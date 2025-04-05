@@ -23,5 +23,5 @@ ANOMALY_DETECTION INSIGHTS
 iso_forest_dates: ['2021-01-10 00:00:00', '2021-01-17 00:00:00', '2021-02-22 00:00:00', '2021-03-08 00:00:00', '2021-03-09 00:00:00']
 lof_dates: ['2021-03-08 00:00:00', '2021-03-09 00:00:00', '2021-03-13 00:00:00', '2021-03-19 00:00:00', '2021-03-20 00:00:00']
 zscore_dates: []
-anomaly_counts: {'iso_forest': 99, 'lof': 99, 'zscore': 99}
+anomaly_counts: {'iso_forest': np.int64(5), 'lof': np.int64(5), 'zscore': np.int64(0)}
 
