@@ -339,6 +339,25 @@ def create_visualizations(df, train_data, test_data, feature_data, time_series_r
         anomaly_fig = viz.plot_anomalies(df['Close'], iso_forest.anomalies_, 'Close', df.index, 'Isolation Forest Anomalies')
         anomaly_fig.savefig('output/figures/isolation_forest_anomalies.png')
 
+def recursive_format_numpy(obj):
+    """
+    Recursively format numpy values in dictionaries and lists
+    
+    Args:
+        obj: Object to format
+        
+    Returns:
+        Formatted object
+    """
+    if isinstance(obj, dict):
+        return {k: recursive_format_numpy(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [recursive_format_numpy(v) for v in obj]
+    elif hasattr(obj, 'item') and callable(getattr(obj, 'item')):
+        return obj.item()
+    else:
+        return obj
+        
 def generate_insights(feature_data, time_series_results, regression_results, classification_results, clustering_models, anomaly_models):
     """
     Generate insights from the model results
@@ -457,7 +476,9 @@ def generate_insights(feature_data, time_series_results, regression_results, cla
             f.write(f"{category.upper()} INSIGHTS\n")
             f.write("=" * 50 + "\n")
             for key, value in category_insights.items():
-                f.write(f"{key}: {value}\n")
+                # Format numpy values
+                formatted_value = recursive_format_numpy(value)
+                f.write(f"{key}: {formatted_value}\n")
             f.write("\n")
     
     return insights
