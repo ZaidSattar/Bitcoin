@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import logging
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix, roc_auc_score, classification_report
 from sklearn.metrics import roc_curve, auc, precision_recall_curve
 import itertools
 
@@ -58,44 +58,48 @@ class ModelEvaluator:
         
         return metrics
     
-    def evaluate_classification_model(self, model_name, y_true, y_pred, y_proba=None):
+    def evaluate_classification_model(self, model_name, y_true, y_pred, y_prob=None):
         """
-        Evaluate classification model and store results
+        Evaluate classification model
         
         Args:
             model_name (str): Name of the model
-            y_true (array-like): True values
-            y_pred (array-like): Predicted values
-            y_proba (array-like, optional): Predicted probabilities
-            
-        Returns:
-            dict: Evaluation metrics
+            y_true (array-like): True labels
+            y_pred (array-like): Predicted labels
+            y_prob (array-like, optional): Predicted probabilities
         """
-        metrics = {
-            'accuracy': accuracy_score(y_true, y_pred),
-            'precision': precision_score(y_true, y_pred, average='binary'),
-            'recall': recall_score(y_true, y_pred, average='binary'),
-            'f1': f1_score(y_true, y_pred, average='binary'),
-            'confusion_matrix': confusion_matrix(y_true, y_pred)
-        }
-        
-        # ROC AUC if probabilities are available
-        if y_proba is not None and y_proba.ndim > 1:
-            from sklearn.metrics import roc_auc_score
-            metrics['roc_auc'] = roc_auc_score(y_true, y_proba[:, 1])
-        
         logger.info(f"Classification evaluation for {model_name}: "
-                   f"Accuracy={metrics['accuracy']:.4f}, Precision={metrics['precision']:.4f}, "
-                   f"Recall={metrics['recall']:.4f}, F1={metrics['f1']:.4f}")
+                    f"Accuracy={accuracy_score(y_true, y_pred):.4f}, "
+                    f"Precision={precision_score(y_true, y_pred, average='binary', zero_division=0):.4f}, "
+                    f"Recall={recall_score(y_true, y_pred, average='binary', zero_division=0):.4f}, "
+                    f"F1={f1_score(y_true, y_pred, average='binary', zero_division=0):.4f}")
         
+        # Calculate ROC AUC if probabilities are provided
+        roc_auc = None
+        if y_prob is not None and len(np.unique(y_true)) > 1:
+            try:
+                if y_prob.ndim > 1 and y_prob.shape[1] > 1:
+                    # For multi-class problems
+                    roc_auc = roc_auc_score(y_true, y_prob[:, 1])
+                else:
+                    # For binary problems with single probability
+                    roc_auc = roc_auc_score(y_true, y_prob)
+            except Exception as e:
+                logger.warning(f"Could not compute ROC AUC: {e}")
+        
+        # Store results
         self.classification_results[model_name] = {
-            'metrics': metrics,
+            'accuracy': accuracy_score(y_true, y_pred),
+            'precision': precision_score(y_true, y_pred, average='binary', zero_division=0),
+            'recall': recall_score(y_true, y_pred, average='binary', zero_division=0),
+            'f1': f1_score(y_true, y_pred, average='binary', zero_division=0),
+            'roc_auc': roc_auc,
+            'confusion_matrix': confusion_matrix(y_true, y_pred),
+            'classification_report': classification_report(y_true, y_pred, zero_division=0),
             'y_true': y_true,
             'y_pred': y_pred,
-            'y_proba': y_proba
+            'y_prob': y_prob
         }
-        
-        return metrics
     
     def evaluate_time_series_model(self, model_name, y_true, y_pred):
         """
@@ -422,7 +426,7 @@ class ModelEvaluator:
         # Get models with probability predictions
         valid_models = []
         for model_name, results in self.classification_results.items():
-            if results['y_proba'] is not None and results['y_proba'].ndim > 1:
+            if results['y_prob'] is not None and results['y_prob'].ndim > 1:
                 valid_models.append(model_name)
         
         if not valid_models:
@@ -439,9 +443,9 @@ class ModelEvaluator:
         
         for model_name in model_names:
             y_true = self.classification_results[model_name]['y_true']
-            y_proba = self.classification_results[model_name]['y_proba'][:, 1]
+            y_prob = self.classification_results[model_name]['y_prob']
             
-            fpr, tpr, _ = roc_curve(y_true, y_proba)
+            fpr, tpr, _ = roc_curve(y_true, y_prob[:, 1])
             roc_auc = auc(fpr, tpr)
             
             plt.plot(fpr, tpr, lw=2, label=f'{model_name} (AUC = {roc_auc:.3f})')
@@ -474,7 +478,7 @@ class ModelEvaluator:
         # Get models with probability predictions
         valid_models = []
         for model_name, results in self.classification_results.items():
-            if results['y_proba'] is not None and results['y_proba'].ndim > 1:
+            if results['y_prob'] is not None and results['y_prob'].ndim > 1:
                 valid_models.append(model_name)
         
         if not valid_models:
@@ -491,9 +495,9 @@ class ModelEvaluator:
         
         for model_name in model_names:
             y_true = self.classification_results[model_name]['y_true']
-            y_proba = self.classification_results[model_name]['y_proba'][:, 1]
+            y_prob = self.classification_results[model_name]['y_prob']
             
-            precision, recall, _ = precision_recall_curve(y_true, y_proba)
+            precision, recall, _ = precision_recall_curve(y_true, y_prob[:, 1])
             pr_auc = auc(recall, precision)
             
             plt.plot(recall, precision, lw=2, label=f'{model_name} (AUC = {pr_auc:.3f})')

@@ -294,7 +294,10 @@ def create_visualizations(df, train_data, test_data, feature_data, time_series_r
     price_fig = viz.plot_price_history(df)
     price_fig.savefig('output/figures/price_history.png')
     
-    # Returns distribution
+    # Returns distribution - calculate returns if not in original dataframe
+    if 'returns' not in df.columns:
+        df['returns'] = df['Close'].pct_change()
+    
     returns_fig = viz.plot_return_distribution(df['returns'].dropna())
     returns_fig.savefig('output/figures/returns_distribution.png')
     
@@ -303,15 +306,16 @@ def create_visualizations(df, train_data, test_data, feature_data, time_series_r
     volatility_fig.savefig('output/figures/volatility.png')
     
     # Correlation heatmap
-    base_features = ['Open', 'High', 'Low', 'Close', 'Volume', 'returns']
+    base_features = [col for col in ['Open', 'High', 'Low', 'Close', 'Volume', 'returns'] if col in df.columns]
     corr_fig = viz.plot_correlation_heatmap(df[base_features])
     corr_fig.savefig('output/figures/correlation_heatmap.png')
     
     # Technical indicators
-    if 'RSI_14' in feature_data.columns and 'MACD' in feature_data.columns:
-        indicators = ['RSI_14', 'MACD', 'MACD_signal', 'MACD_hist', 'BB_width']
-        tech_fig = viz.plot_technical_indicators(feature_data, indicators)
-        tech_fig.savefig('output/figures/technical_indicators.png')
+    if 'RSI_3' in feature_data.columns and 'MACD' in feature_data.columns:
+        indicators = [col for col in ['RSI_3', 'MACD', 'MACD_signal', 'MACD_hist', 'BB_width'] if col in feature_data.columns]
+        if indicators:
+            tech_fig = viz.plot_technical_indicators(feature_data, indicators)
+            tech_fig.savefig('output/figures/technical_indicators.png')
     
     # Time series forecasts
     if 'arima' in time_series_results:
@@ -344,92 +348,118 @@ def generate_insights(feature_data, time_series_results, regression_results, cla
         time_series_results (dict): Time series model results
         regression_results (dict): Regression model results
         classification_results (dict): Classification model results
-        clustering_models (dict): Clustering model results
+        clustering_models (dict): Clustering model results 
         anomaly_models (dict): Anomaly detection model results
+        
+    Returns:
+        dict: Insights from the models
     """
     logger.info("Generating insights")
-    
-    insights = []
+    insights = {}
     
     # Time series insights
-    if 'arima' in time_series_results:
-        arima_rmse = time_series_results['arima']['evaluation']['rmse']
-        insights.append(f"Time Series Forecasting: ARIMA RMSE = {arima_rmse:.4f}")
+    if time_series_results:
+        insights['time_series'] = {}
+        
+        # Compare time series models
+        model_performance = {}
+        for model_name, model_results in time_series_results.items():
+            model_performance[model_name] = {
+                'rmse': model_results['evaluation'].get('rmse', 0),
+                'mae': model_results['evaluation'].get('mae', 0),
+                'mape': model_results['evaluation'].get('mape', 0)
+            }
+        
+        best_model = min(model_performance.items(), key=lambda x: x[1]['rmse'])
+        insights['time_series']['best_model'] = best_model[0]
+        insights['time_series']['model_performance'] = model_performance
     
     # Regression insights
     if regression_results:
-        models = list(regression_results.keys())
-        rmse_values = [regression_results[model]['evaluation']['rmse'] for model in models]
-        best_model = models[np.argmin(rmse_values)]
+        insights['regression'] = {}
         
-        insights.append(f"Price Regression: Best model is {best_model} with RMSE = {min(rmse_values):.4f}")
+        # Compare regression models
+        model_performance = {}
+        for model_name, model_results in regression_results.items():
+            model_performance[model_name] = {
+                'rmse': model_results['evaluation'].get('rmse', 0),
+                'mae': model_results['evaluation'].get('mae', 0),
+                'r2': model_results['evaluation'].get('r2', 0),
+                'mape': model_results['evaluation'].get('mape', 0)
+            }
         
-        # Feature importance if available
-        if hasattr(regression_results[best_model]['model'], 'feature_importances_'):
-            feature_names = feature_data.drop([col for col in feature_data.columns if col.startswith('target_')], axis=1).columns
-            importances = regression_results[best_model]['model'].feature_importances_
-            
-            top_features = [(feature_names[i], importances[i]) for i in np.argsort(importances)[-5:]]
-            insights.append(f"Top 5 important features for price prediction: {', '.join([f'{feature} ({importance:.4f})' for feature, importance in reversed(top_features)])}")
+        best_model = min(model_performance.items(), key=lambda x: x[1]['rmse'])
+        insights['regression']['best_model'] = best_model[0]
+        insights['regression']['model_performance'] = model_performance
     
     # Classification insights
     if classification_results:
-        models = list(classification_results.keys())
-        f1_values = [classification_results[model]['evaluation']['f1'] for model in models]
-        best_model = models[np.argmax(f1_values)]
+        insights['classification'] = {}
         
-        insights.append(f"Direction Classification: Best model is {best_model} with F1 = {max(f1_values):.4f}")
+        # Compare classification models
+        model_performance = {}
+        for model_name, model_results in classification_results.items():
+            model_performance[model_name] = {
+                'accuracy': model_results['evaluation'].get('accuracy', 0),
+                'precision': model_results['evaluation'].get('precision', 0),
+                'recall': model_results['evaluation'].get('recall', 0),
+                'f1': model_results['evaluation'].get('f1', 0)
+            }
         
-        # Accuracy for price direction prediction
-        accuracy = classification_results[best_model]['evaluation']['accuracy']
-        insights.append(f"The {best_model} model predicts price direction with {accuracy:.2%} accuracy.")
+        best_model = max(model_performance.items(), key=lambda x: x[1]['f1'])
+        insights['classification']['best_model'] = best_model[0]
+        insights['classification']['model_performance'] = model_performance
     
     # Clustering insights
-    if 'kmeans' in clustering_models:
-        kmeans = clustering_models['kmeans']
-        n_clusters = len(np.unique(kmeans.labels_))
+    if clustering_models:
+        insights['clustering'] = {}
         
-        insights.append(f"Market Regimes: Identified {n_clusters} distinct market regimes using K-Means clustering.")
-        
-        # Get cluster profiles
-        feature_data_with_clusters = feature_data.copy()
-        feature_data_with_clusters['cluster'] = kmeans.labels_
-        
-        # Analyze cluster characteristics
-        cluster_profiles = feature_data_with_clusters.groupby('cluster')['Close', 'returns', 'volatility_14'].mean()
-        
-        for cluster in range(n_clusters):
-            if cluster in cluster_profiles.index:
-                profile = cluster_profiles.loc[cluster]
-                insights.append(f"Cluster {cluster}: Avg Price = ${profile['Close']:.2f}, Avg Return = {profile['returns']:.4f}, Avg Volatility = {profile['volatility_14']:.4f}")
+        # Add cluster labels to feature data
+        if 'kmeans' in clustering_models:
+            feature_data_with_clusters = feature_data.copy()
+            feature_data_with_clusters['cluster'] = clustering_models['kmeans'].labels_
+            
+            # Analyze cluster characteristics
+            # Check if necessary columns exist before calculating
+            columns_to_use = ['Close']
+            if 'returns' in feature_data_with_clusters.columns:
+                columns_to_use.append('returns')
+            if 'volatility_14' in feature_data_with_clusters.columns:
+                columns_to_use.append('volatility_14')
+                
+            cluster_profiles = feature_data_with_clusters.groupby('cluster')[columns_to_use].mean()
+            
+            # Identify dominant clusters
+            cluster_sizes = feature_data_with_clusters['cluster'].value_counts().to_dict()
+            
+            insights['clustering']['cluster_profiles'] = cluster_profiles.to_dict()
+            insights['clustering']['cluster_sizes'] = cluster_sizes
     
     # Anomaly detection insights
-    if 'iso_forest' in anomaly_models:
-        iso_forest = anomaly_models['iso_forest']
-        anomaly_count = np.sum(iso_forest.anomalies_)
-        anomaly_rate = np.mean(iso_forest.anomalies_)
+    if anomaly_models:
+        insights['anomaly_detection'] = {}
         
-        insights.append(f"Anomaly Detection: Identified {anomaly_count} anomalies ({anomaly_rate:.2%} of data points).")
-        
-        # Get feature data with anomalies
-        feature_data_with_anomalies = feature_data.copy()
-        feature_data_with_anomalies['anomaly'] = iso_forest.anomalies_
-        
-        # Compare normal vs anomalous points
-        normal_vs_anomaly = feature_data_with_anomalies.groupby('anomaly')['Close', 'returns', 'volatility_14'].mean()
-        
-        if len(normal_vs_anomaly) > 1:
-            normal = normal_vs_anomaly.loc[False]
-            anomaly = normal_vs_anomaly.loc[True]
+        # Compare anomaly detection models
+        anomaly_counts = {}
+        for model_name, model_results in anomaly_models.items():
+            anomaly_counts[model_name] = sum(model_results.anomalies_)
             
-            insights.append(f"Normal points: Avg Price = ${normal['Close']:.2f}, Avg Return = {normal['returns']:.4f}, Avg Volatility = {normal['volatility_14']:.4f}")
-            insights.append(f"Anomalies: Avg Price = ${anomaly['Close']:.2f}, Avg Return = {anomaly['returns']:.4f}, Avg Volatility = {anomaly['volatility_14']:.4f}")
+            # Get anomaly dates
+            if hasattr(feature_data, 'index'):
+                anomaly_dates = feature_data.index[model_results.anomalies_].tolist()
+                insights['anomaly_detection'][f'{model_name}_dates'] = [str(date) for date in anomaly_dates]
+        
+        insights['anomaly_detection']['anomaly_counts'] = anomaly_counts
     
-    # Write insights to file
+    # Save insights to file
     with open('output/insights.txt', 'w') as f:
-        f.write('\n'.join(insights))
+        for category, category_insights in insights.items():
+            f.write(f"{category.upper()} INSIGHTS\n")
+            f.write("=" * 50 + "\n")
+            for key, value in category_insights.items():
+                f.write(f"{key}: {value}\n")
+            f.write("\n")
     
-    logger.info("Insights generated and saved to output/insights.txt")
     return insights
 
 def main():
@@ -482,8 +512,11 @@ def main():
     
     # Print insights to console
     print("\n===== INSIGHTS =====")
-    for insight in insights:
-        print(f"- {insight}")
+    for category, category_insights in insights.items():
+        print(f"\n{category.upper()} INSIGHTS")
+        print("=" * 50)
+        for key, value in category_insights.items():
+            print(f"{key}: {value}")
 
 if __name__ == "__main__":
     main() 
